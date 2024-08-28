@@ -1,0 +1,121 @@
+@Library('PipelineGlobalLibrary') l1
+library("PipelineNefLibrary@master")
+import com.ericsson.ci.mason.Mason2
+def ft_comm              = ft_comm
+def project_name         = 'eric-aat-ccrc-loadtest-dtg'
+def project_repo         = 'udm_industrialization/'
+def product_name         = "${project_name}"
+def cloud_name           = 'dev'
+def target_repo_docker   = 'armdocker.rnd.ericsson.se/proj-aat-xcc-common-load-test-service'
+def target_repo_helm     = 'https://arm.seli.gic.ericsson.se/artifactory/proj-aat-xcc-common-load-test-service-helm/'
+def credentials_arm      = 'userpwd-adp'
+def commitId             = ''
+def docker_file          = './docker/dtg-server/Dockerfile'
+def helm_chart_file      = './chart/eric-aat-ccrc-loadtest-dtg/Chart.yaml'
+def helm_chart_dir       = './chart/eric-aat-ccrc-loadtest-dtg'
+def helm_info_file       = "${helm_chart_dir}/eric-product-info.yaml"
+def is_publish           = integration5g.isVerifyMode()?false:true
+// for checkout
+def gerrit_branch        = ''
+def gerrit_refspec       = ''
+def is_release           = params.RELEASE
+def image_tag            = params.IMAGE_TAG ? params.IMAGE_TAG.trim(): ""
+def chart_version        = params.CHART_VERSION ? params.CHART_VERSION.trim(): ""
+def cfg_event_type       = params.GERRIT_EVENT_TYPE? params.GERRIT_EVENT_TYPE: "change-merged"
+def need_tag_repo        = ft_comm.isNeedTagRepo(params.needTagRepo, is_publish)
+def is_bump_version      = (params.GERRIT_CHANGE_SUBJECT ==~ ft_comm.bumpFilter)
+// for design-rules
+def current_dir     = './'
+println(is_publish)
+if ( is_publish ) {
+    gerrit_branch        = env.GERRIT_BRANCH
+    String armUsername   = common.getUserPassFromCredential("userpwd-nef", "username")
+    String armPassword   = common.getUserPassFromCredential("userpwd-nef", "password")
+    String gerritToken   = "${armUsername}:${armPassword}".bytes.encodeBase64().toString()
+    String cfg_branch    = gerrit_branch
+    String cfg_repository = project_repo
+
+    ft_comm.nodeUdmJenkinsSlave() {
+                cfg_patchset_revision = sh(script:"""
+                        curl -X GET -H 'Content-Type: application/json' -H 'Accept: application/json' \
+                            -H 'Authorization: Basic ${gerritToken}' \
+                            https://gerrit.ericsson.se/a/projects/${cfg_repository.replaceAll("/", "%2F")}/branches/${cfg_branch} | \
+                            grep -Po '"revision":.*?[^\\\\]"' | cut -d ':' -f2 | tr -d '"'
+                    """, returnStdout: true)
+            }
+    commitId = cfg_patchset_revision[0..6].toString()
+    print "commitId: ${commitId}"
+} else { //VerifyMode
+    gerrit_branch        = env.GERRIT_PATCHSET_REVISION
+    gerrit_refspec       = env.GERRIT_REFSPEC
+    commitId             = env.GERRIT_PATCHSET_REVISION[0..6]
+}
+
+def result = Mason2.ciPipeline(this) {
+    parallel(false)
+    cloud(cloud_name)
+    unit('nef')
+    languages('java')
+    checkout {
+        gerrit ('checkout') {
+            project(project_repo)
+            credentials(credentials_arm)
+            branch(gerrit_branch)
+            refspec(gerrit_refspec)
+        }
+    }
+    lint {
+        helm("helm-charts-linting") {
+            chart(helm_chart_file)
+            clientVersion(3)
+            withSubcharts(true)
+            updateDependencies(false)
+        }
+    }
+    version {
+        calculate("calc-version") {
+            recalculateCurrentCommitTag(true)
+            depends("checkout")
+            if (is_publish) {
+                env([GERRIT_EVENT_TYPE: "change-merged"])
+            }
+            artifactTool("ALL")
+            filePath("version.properties")
+            if (! is_bump_version) {
+                versionStrategy("PRERELEASE")
+            }
+        }
+    }
+    script {
+        shell('update-version') {
+            skipExecution(!image_tag && !chart_version)
+            depends("calc-version")
+            cmd(ft_comm.overwriteVersionProperties(image_tag, chart_version))
+        }
+    }
+    build {
+        docker('docker-build') {
+            dockerfile(docker_file)
+            credentials(credentials_arm)
+            name(product_name)
+            if ( gerrit_branch != 'master' ) {
+                tag(commitId)
+            }
+            if ( is_publish ){
+                push(target_repo_docker)
+            }
+        }
+    }    
+    build {
+        helm ('helm-build-dtg') {
+            chart(helm_chart_file)
+            credentials(credentials_arm)
+            updateAppVersion(true)
+            clientVersion(3)
+            if ( is_publish ){
+                publishArtifact(true)
+                push(target_repo_helm)
+            }
+        }
+    }
+}

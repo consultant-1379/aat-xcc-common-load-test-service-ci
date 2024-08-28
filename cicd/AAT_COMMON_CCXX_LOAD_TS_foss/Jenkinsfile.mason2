@@ -1,0 +1,7 @@
+@Library('PipelineGlobalLibrary') l1
+library("PipelineNefLibrary@${params.GERRIT_BRANCH}")
+
+import com.ericsson.ci.mason.Mason2
+
+println ("test")
+

@@ -1,0 +1,48 @@
+@Library('PipelineGlobalLibrary') l1
+library("PipelineNefLibrary@${params.GERRIT_BRANCH}")
+
+import com.ericsson.ci.mason.Mason2
+def project_name         = 'eric-aat-ccxx-loadtest-testcase'
+def project_repo         = "udm_industrialization/${project_name}"
+def cloud_name           = 'dev'
+def credentials_arm      = 'userpwd-adp'
+// for checkout
+def testcase_branch      = params.TESTCASE_BRANCH?params.TESTCASE_BRANCH:'master'
+def testcase_refspec     = params.TESTCASE_REFSPEC?params.TESTCASE_REFSPEC:'master'
+def is_release           = params.RELEASE
+String armUsername       = common.getUserPassFromCredential("userpwd-nef", "username")
+String armPassword       = common.getUserPassFromCredential("userpwd-nef", "password")
+String gerritToken       = "${armUsername}:${armPassword}".bytes.encodeBase64().toString()
+def builder_image        = 'selidocker.lmera.ericsson.se/proj-nef/base-image-sles-java-builder'
+def builder_version      = params.BUILDER_VERSION?params.BUILDER_VERSION:'0.0.45'
+def java_build_tool      = 'maven'
+def package_version      = params.PACKAGE_VERSION?params.PACKAGE_VERSION:'0.0.1'
+
+def result = Mason2.ciPipeline(this) {
+    parallel(false)
+    cloud(cloud_name)
+    unit('nef')
+    languages('java')
+    checkout {
+        gerrit ('checkout') {
+            project(project_repo)
+            credentials(credentials_arm)
+            branch(testcase_branch)
+            refspec(testcase_refspec)
+        }
+    }
+    script {
+        shell("deploy"){
+            depends("checkout")
+            credentials(credentials_arm)
+            container('java-builder',builder_image,builder_version)
+            cmd("""
+                    cd udm5g-parent
+                    mvn versions:set -DnewVersion=${package_version} --settings=../settings.xml
+                    mvn clean install --settings=../settings.xml
+                    cd ../udm5g-nonfunctional-testcases
+                    mvn clean deploy --settings=../settings.xml
+                """)
+        }
+    }
+}

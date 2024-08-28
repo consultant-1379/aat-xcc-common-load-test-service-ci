@@ -1,0 +1,63 @@
+@Library('PipelineGlobalLibrary') l1
+library("PipelineNefLibrary@master")
+import com.ericsson.ci.mason.Mason2
+def ft_comm              = ft_comm
+def project_name         = 'eric-aat-ccxx-loadtest-dtg'
+def project_repo         = 'udm_industrialization/eric-aat-ccxx-loadtest-dtg'
+def product_name         = "eric-aat-ccxx-dtg-server"
+def cloud_name           = 'dev'
+def target_repo_docker   = 'armdocker.rnd.ericsson.se/proj-aat-xcc-common-load-test-service'
+def target_repo_helm     = 'https://arm.seli.gic.ericsson.se/artifactory/proj-aat-xcc-common-load-test-service-helm-local/eric-aat-ccxx-loadtest-dtg/'
+def credentials_arm      = 'userpwd-adp'
+def docker_file          = './docker/dtg-server/Dockerfile'
+def helm_chart_file      = './charts/eric-aat-ccxx-loadtest-dtg/Chart.yaml'
+def helm_chart_dir       = './charts/eric-aat-ccxx-loadtest-dtg'
+def helm_info_file       = "${helm_chart_dir}/eric-product-info.yaml"
+// for checkout
+def dtg_branch           = params.DTG_BRANCH?params.DTG_BRANCH:'master'
+def dtg_refspec          = params.DTG_REFSPEC?params.DTG_REFSPEC:'master'
+def image_tag            = params.IMAGE_TAG ? params.IMAGE_TAG.trim(): '0.0.1'
+def chart_version        = params.CHART_VERSION ? params.CHART_VERSION.trim(): '0.0.1'
+
+def result = Mason2.ciPipeline(this) {
+    parallel(false)
+    cloud(cloud_name)
+    unit('nef')
+    languages('java')
+    checkout {
+        gerrit ('checkout') {
+            project(project_repo)
+            credentials(credentials_arm)
+            branch(dtg_branch)
+            refspec(dtg_refspec)
+        }
+    }
+    lint {
+        helm("helm-charts-linting") {
+            chart(helm_chart_file)
+            clientVersion(3)
+            withSubcharts(true)
+            updateDependencies(false)
+        }
+    }
+    build {
+        docker('docker-build') {
+            dockerfile(docker_file)
+            credentials(credentials_arm)
+            tag(image_tag)
+            name(product_name)
+            push(target_repo_docker)
+        }
+    }
+    build {
+        helm ('helm-build-dtg') {
+            chart(helm_chart_file)
+            credentials(credentials_arm)
+            replaceInYaml("./charts/eric-aat-ccxx-loadtest-dtg/eric-product-info.yaml", ['images:reusedImage:tag':image_tag])
+            version(chart_version)
+            clientVersion(3)
+            publishArtifact(true)
+            push(target_repo_helm)
+        }
+    }
+}

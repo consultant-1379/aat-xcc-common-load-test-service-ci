@@ -1,0 +1,39 @@
+@Library('PipelineGlobalLibrary') l1
+library("PipelineNefLibrary@master")
+import com.ericsson.ci.mason.Mason2
+def ft_comm              = ft_comm
+def project_name         = 'eric-aat-common-jcat-server'
+def project_repo         = "udm_industrialization/${project_name}"
+def product_name         = "${project_name}"
+def cloud_name           = 'dev'
+def target_repo_docker   = 'armdocker.rnd.ericsson.se/proj-aat-xcc-common-load-test-service'
+def credentials_arm      = 'userpwd-adp'
+def docker_file          = './docker/Dockerfile'
+// for checkout
+def jcat_branch          = params.JCAT_BRANCH?params.JCAT_BRANCH:'master'
+def jcat_refspec         = params.JCAT_REFSPEC?params.JCAT_REFSPEC:'master'
+def image_tag            = params.IMAGE_TAG ? params.IMAGE_TAG.trim(): ""
+
+def result = Mason2.ciPipeline(this) {
+    parallel(false)
+    cloud(cloud_name)
+    unit('nef')
+    languages('java')
+    checkout {
+        gerrit ('checkout') {
+            project(project_repo)
+            credentials(credentials_arm)
+            branch(jcat_branch)
+            refspec(jcat_refspec)
+        }
+    }
+    build {
+        docker('docker-build') {
+            dockerfile(docker_file)
+            credentials(credentials_arm)
+            name(product_name)
+            tag(image_tag)
+            push(target_repo_docker)
+        }
+    }    
+}

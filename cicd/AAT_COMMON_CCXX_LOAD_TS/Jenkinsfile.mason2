@@ -1,0 +1,61 @@
+@Library('PipelineGlobalLibrary') l1
+library("PipelineNefLibrary@${params.GERRIT_BRANCH}")
+
+import com.ericsson.ci.mason.Mason2
+def ft_comm              = ft_comm
+def project_name         = 'eric-aat-ccxx-loadtest'
+def project_repo         = 'udm_industrialization/aat-xcc-common-load-test-service'
+def product_name         = "${project_name}"
+def cloud_name           = 'dev'
+def target_repo_docker   = 'armdocker.rnd.ericsson.se/proj-aat-xcc-common-load-test-service'
+def target_repo_helm     = 'https://arm.seli.gic.ericsson.se/artifactory/proj-aat-xcc-common-load-test-service-helm/'
+def credentials_arm      = 'userpwd-adp'
+def helm_chart_file      = './chart/aat-common-ccxx-load-ts/eric-aat-ccxx-loadtest/Chart.yaml'
+def helm_chart_dir       = './chart/aat-common-ccxx-load-ts/eric-aat-ccxx-loadtest/'
+def helm_info_file       = "${helm_chart_dir}/eric-product-info.yaml"
+// for checkout
+def service_branch       = params.SERVICE_BRANCH?params.SERVICE_BRANCH:'master'
+def service_refspec      = params.SERVICE_REFSPEC?params.SERVICE_REFSPEC:'master'
+def image_tag            = params.IMAGE_TAG ? params.IMAGE_TAG.trim(): ""
+def chart_version        = params.CHART_VERSION ? params.CHART_VERSION.trim(): ""
+
+def result = Mason2.ciPipeline(this) {
+    parallel(false)
+    cloud(cloud_name)
+    unit('nef')
+    languages('java')
+    checkout {
+        gerrit ('checkout') {
+            project(project_repo)
+            credentials(credentials_arm)
+            branch(service_branch)
+            refspec(service_refspec)
+        }
+    }
+    lint {
+        helm("helm-charts-linting") {
+            chart(helm_chart_file)
+            clientVersion(3)
+            withSubcharts(true)
+            updateDependencies(false)
+        }
+    }
+    script {
+        shell("update-requirement"){
+            credentials(credentials_arm)
+            cmd("""
+                    sed -i 's/version: .*/version: ${chart_version}/g' ${helm_chart_dir}requirements.yaml
+                """)
+        }
+    }
+    build {
+        helm ('helm-build') {
+            chart(helm_chart_file)
+            credentials(credentials_arm)
+            version(chart_version)
+            clientVersion(3)
+            publishArtifact(true)
+            push(target_repo_helm)
+        }
+    }
+}

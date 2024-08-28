@@ -1,0 +1,107 @@
+@Library('PipelineGlobalLibrary') l1
+library("PipelineNefLibrary@${params.GERRIT_BRANCH}")
+
+import com.ericsson.ci.mason.Mason2
+def cloud_name           = 'dev'
+
+// for checkout
+def gerrit_branch        = params.GERRIT_BRANCH
+def gerrit_refspec       = params.GERRIT_REFSPEC
+def plugin_branch        = params.PLUGIN_BRANCH?env.PLUGIN_BRANCH:'master'
+def plugin_refspec       = params.PLUGIN_REFSPEC?env.PLUGIN_REFSPEC:'master'
+def testcase_branch      = params.TESTCASE_BRANCH?env.TESTCASE_BRANCH:'master'
+def testcase_refspec     = params.TESTCASE_REFSPEC?env.TESTCASE_REFSPEC:'master'
+def jcat_server_branch   = params.JCAT_SERVER_BRANCH?env.JCAT_SERVER_BRANCH:'master'
+def jcat_server_refspec  = params.JCAT_SERVER_REFSPEC?env.JCAT_SERVER_REFSPEC:'master'
+def jcat_adaptor_branch  = params.JCAT_ADAPTOR_BRANCH?env.JCAT_ADAPTOR_BRANCH:'master'
+def jcat_adaptor_refspec = params.JCAT_ADAPTOR_REFSPEC?env.JCAT_ADAPTOR_REFSPEC:'master'
+def dtg_branch           = params.DTG_BRANCH?params.DTG_BRANCH:'master'
+def dtg_refspec          = params.DTG_REFSPEC?params.DTG_REFSPEC:'master'
+def service_branch       = params.SERVICE_BRANCH?env.SERVICE_BRANCH:'master'
+def service_refspec      = params.SERVICE_REFSPEC?env.SERVICE_REFSPEC:'master'
+
+def builder_version      = params.BUILDER_VERSION?params.BUILDER_VERSION:'0.0.45'
+def package_version      = params.PACKAGE_VERSION?params.PACKAGE_VERSION:'0.0.1'
+
+def result = Mason2.ciPipeline(this) {
+    parallel(false)
+    cloud(cloud_name)
+    unit('nef')
+    languages('java')
+}
+
+stage("call plugin build"){
+    build job: 'AAT_COMMON_CCXX_LOAD_TS_plugin',
+    parameters: [
+        string(name : "GERRIT_BRANCH", value: gerrit_branch),
+        string(name : "GERRIT_REFSPEC", value: gerrit_refspec),
+        string(name : "PLUGIN_BRANCH", value: plugin_branch),
+        string(name : "PLUGIN_REFSPEC", value: plugin_refspec),
+        booleanParam(name : "RELEASE", value: false),
+        string(name : "BUILDER_VERSION", value: builder_version),
+        string(name : "PACKAGE_VERSION", value: package_version)
+    ]
+}
+
+stage("call testcase build"){
+    build job: 'AAT_COMMON_CCXX_LOAD_TS_testcase',
+    parameters: [
+        string(name : "GERRIT_BRANCH", value: gerrit_branch),
+        string(name : "GERRIT_REFSPEC", value: gerrit_refspec),
+        string(name : "TESTCASE_BRANCH", value: testcase_branch),
+        string(name : "TESTCASE_REFSPEC", value: testcase_refspec),
+        booleanParam(name : "RELEASE", value: false),
+        string(name : "BUILDER_VERSION", value: builder_version),
+        string(name : "PACKAGE_VERSION", value: package_version)
+    ]
+}
+
+stage("call JCat Server build"){
+    build job: 'AAT_COMMON_JCAT_SERVER',
+    parameters: [
+        string(name : "GERRIT_BRANCH", value: gerrit_branch),
+        string(name : "GERRIT_REFSPEC", value: gerrit_refspec),
+        string(name : "JCAT_BRANCH", value: jcat_server_branch),
+        string(name : "JCAT_REFSPEC", value: jcat_server_refspec),
+        booleanParam(name : "RELEASE", value: false),
+        string(name : "IMAGE_TAG", value: package_version)
+    ]
+}
+
+stage("call JCat build"){
+    build job: 'AAT_COMMON_CCXX_LOAD_TS_jcat',
+    parameters: [
+        string(name : "GERRIT_BRANCH", value: gerrit_branch),
+        string(name : "GERRIT_REFSPEC", value: gerrit_refspec),
+        string(name : "JCAT_BRANCH", value: jcat_adaptor_branch),
+        string(name : "JCAT_REFSPEC", value: jcat_adaptor_refspec),
+        booleanParam(name : "RELEASE", value: false),
+        string(name : "IMAGE_TAG", value: package_version),
+        string(name : "CHART_VERSION", value: package_version)
+    ]
+}
+
+stage("call DTG build"){
+    build job: 'AAT_COMMON_CCXX_LOAD_TS_dtg',
+    parameters: [
+        string(name : "GERRIT_BRANCH", value: gerrit_branch),
+        string(name : "GERRIT_REFSPEC", value: gerrit_refspec),
+        string(name : "DTG_BRANCH", value: dtg_branch),
+        string(name : "DTG_REFSPEC", value: dtg_refspec),
+        booleanParam(name : "RELEASE", value: false),
+        string(name : "IMAGE_TAG", value: package_version),
+        string(name : "CHART_VERSION", value: package_version)
+    ]
+}
+
+stage("call helm chart build"){
+    build job: 'AAT_COMMON_CCXX_LOAD_TS',
+    parameters: [
+        string(name : "GERRIT_BRANCH", value: gerrit_branch),
+        string(name : "GERRIT_REFSPEC", value: gerrit_refspec),
+        string(name : "SERVICE_BRANCH", value: service_branch),
+        string(name : "SERVICE_REFSPEC", value: service_refspec),
+        booleanParam(name : "RELEASE", value: false),
+        string(name : "CHART_VERSION", value: package_version)
+    ]
+}

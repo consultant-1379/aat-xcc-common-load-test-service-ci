@@ -1,0 +1,67 @@
+@Library('PipelineGlobalLibrary') l1
+library("PipelineNefLibrary@${params.GERRIT_BRANCH}")
+
+import com.ericsson.ci.mason.Mason2
+def ft_comm              = ft_comm
+def project_name         = 'eric-aat-ccxx-loadtest-jcat'
+def project_repo         = 'udm_industrialization'
+def product_name         = "eric-aat-ccxx-jcat-adaptor"
+def project_path         = "${project_repo}/${project_name}"
+def cloud_name           = 'dev'
+def target_repo_docker   = 'armdocker.rnd.ericsson.se/proj-aat-xcc-common-load-test-service'
+def target_repo_helm     = 'https://arm.seli.gic.ericsson.se/artifactory/proj-aat-xcc-common-load-test-service-helm-local/eric-aat-ccxx-loadtest-jcat/'
+def credentials_arm      = 'userpwd-adp'
+def commitId             = ''
+def docker_file_adaptor  = './docker/jcat-aat-adaptor/Dockerfile'
+def helm_chart_file      = './charts/eric-aat-ccxx-loadtest-jcat/Chart.yaml'
+def helm_chart_dir       = './charts/eric-aat-ccxx-loadtest-jcat'
+def helm_info_file       = "${helm_chart_dir}/eric-product-info.yaml"
+// for checkout
+def jcat_branch          = params.JCAT_BRANCH?params.JCAT_BRANCH:'master'
+def jcat_refspec         = params.JCAT_REFSPEC?params.JCAT_REFSPEC:'master'
+def image_tag            = params.IMAGE_TAG ? params.IMAGE_TAG.trim(): ""
+def chart_version        = params.CHART_VERSION ? params.CHART_VERSION.trim(): ""
+
+def result = Mason2.ciPipeline(this) {
+    parallel(false)
+    cloud(cloud_name)
+    unit('nef')
+    languages('java')
+    checkout {
+        gerrit ('checkout') {
+            project(project_path)
+            credentials(credentials_arm)
+            branch(jcat_branch)
+            refspec(jcat_refspec)
+        }
+    }
+    lint {
+        helm("helm-charts-linting") {
+            chart(helm_chart_file)
+            clientVersion(3)
+            withSubcharts(true)
+            updateDependencies(false)
+        }
+    }
+    build {
+        docker('docker-build') {
+            dockerfile(docker_file_adaptor)
+            credentials(credentials_arm)
+            tag(image_tag)
+            name(product_name)
+            push(target_repo_docker)
+        }
+    }
+    build {
+        helm ('helm-build-jcat') {
+            chart(helm_chart_file)
+            credentials(credentials_arm)
+            replaceInYaml("./charts/eric-aat-ccxx-loadtest-jcat/eric-product-info.yaml", ['images:mainImage:tag':image_tag])
+            replaceInYaml("./charts/eric-aat-ccxx-loadtest-jcat/eric-product-info.yaml", ['images:reusedImage:tag':image_tag])
+            version(chart_version)
+            clientVersion(3)
+            publishArtifact(true)
+            push(target_repo_helm)
+        }
+    }
+}
